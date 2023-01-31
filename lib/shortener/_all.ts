@@ -24,3 +24,4 @@
 
 export {DefaultShortener} from './default';
 export {TinyUrlShortener} from './tinyurl';
+export {FwdShortener} from './fwd';
