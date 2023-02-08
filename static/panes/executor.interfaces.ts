@@ -1,4 +1,4 @@
-// Copyright (c) 2019, Compiler Explorer Authors
+// Copyright (c) 2022, Compiler Explorer Authors
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -22,36 +22,20 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import path from 'path';
+import {WidgetState} from '../widgets/libs-widget.interfaces';
 
-import fs from 'fs-extra';
-
-import {BaseTool} from './base-tool';
-
-export class ClangFormatTool extends BaseTool {
-    static get key() {
-        return 'clang-format-tool';
-    }
-
-    constructor(toolInfo, env) {
-        super(toolInfo, env);
-
-        this.addOptionsToToolArgs = false;
-    }
-
-    async runTool(compilationInfo, inputFilepath, args, stdin) {
-        const sourcefile = inputFilepath;
-        const compilerExe = compilationInfo.compiler.exe;
-        const options = compilationInfo.options;
-        const dir = path.dirname(sourcefile);
-
-        let compileFlags = options.filter(option => option !== sourcefile);
-        if (!compilerExe.includes('clang++')) {
-            compileFlags = compileFlags.concat(this.tool.options);
-        }
-
-        await fs.writeFile(path.join(dir, 'compile_flags.txt'), compileFlags.join('\n'));
-        args.push('-style={' + stdin.trim().split('\n').join(',') + '}');
-        return await super.runTool(compilationInfo, sourcefile, args, stdin);
-    }
-}
+export type ExecutorState = WidgetState & {
+    tree?: number;
+    source?: number;
+    execArgs?: string;
+    execStdin?: string;
+    options?: string;
+    filters?: Record<string, boolean>;
+    compilationPanelShown?: boolean;
+    argsPanelShown?: boolean;
+    stdinPanelShown?: boolean;
+    compilerOutShown?: boolean;
+    wrap?: boolean;
+    lang?: string;
+    compiler: string;
+};

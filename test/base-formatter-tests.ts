@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Compiler Explorer Authors
+// Copyright (c) 2021, Compiler Explorer Authors
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -22,16 +22,32 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import {AsmParser} from './asm-parser';
+import {BaseFormatter} from '../lib/formatters/base';
 
-export class SassAsmParser extends AsmParser {
-    constructor(compilerProps) {
-        super(compilerProps);
+class Formatter extends BaseFormatter {}
 
-        // These are for parsing the output of nvdisasm.
-        this.asmOpcodeRe =
-            /^\s*\/\*(?<address>[^*]+)\*\/()()\s*{?\s*(?<disasm>[^;}]+)(?:}|;\s*\/\* 0x(?<opcodes>[\da-f]+) \*\/)/;
-        this.lineRe = /^\s*\/\/## File "([^"]+)", line (?<line>\d+)$/;
-        this.labelRe = /^(?!\.text\.)()(\S[^:]+):$/;
-    }
-}
+describe('Basic formatter functionality', () => {
+    it('should be one-true-style if the styles are empty', () => {
+        const fmt = new Formatter({
+            name: 'foo-format',
+            exe: '/dev/null',
+            styles: [],
+            type: 'foofmt',
+            version: 'foobar-format 1.0.0',
+        });
+        fmt.isValidStyle('foostyle').should.equal(false);
+        fmt.formatterInfo.styles.should.deep.equal([]);
+    });
+
+    it('should return an array of args for formatters with styles', () => {
+        const fmt = new Formatter({
+            name: 'foo-format',
+            exe: '/dev/null',
+            styles: ['foostyle'],
+            type: 'foofmt',
+            version: 'foobar-format 1.0.0',
+        });
+        fmt.isValidStyle('foostyle').should.equal(true);
+        fmt.formatterInfo.styles.should.deep.equal(['foostyle']);
+    });
+});
