@@ -18,6 +18,7 @@ Options:
 """
 
 using InteractiveUtils
+using Enzyme
 
 if length(ARGS) < 2
 	println(doc)
