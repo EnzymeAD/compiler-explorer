@@ -18,9 +18,6 @@ Options:
 """
 
 using InteractiveUtils
-using Pkg
-
-Pkg.add("Enzyme")
 
 if length(ARGS) < 2
 	println(doc)
