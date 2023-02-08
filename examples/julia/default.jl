@@ -2,7 +2,7 @@ function square(x)
     return x * x
 end
 
-function dsqure(x)
+function dsquare(x)
     return autodiff(square, Active(x))
 end
 
