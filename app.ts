@@ -101,6 +101,7 @@ const opts = nopt({
     prediscovered: [String],
     version: [Boolean],
     webpackContent: [String],
+    noLocal: [Boolean],
 });
 
 if (opts.debug) logger.level = 'debug';
@@ -128,6 +129,7 @@ if (opts.tmpDir) {
 }
 
 const distPath = utils.resolvePathFromAppRoot('.');
+logger.debug(`Distpath=${distPath}`);
 
 const gitReleaseName = (() => {
     // Use the canned git_hash if provided
@@ -202,8 +204,10 @@ const propHierarchy = [
     _.map(defArgs.env, e => `${e}.${process.platform}`),
     process.platform,
     os.hostname(),
-    'local',
 ].flat();
+if (!opts.noLocal) {
+    propHierarchy.push('local');
+}
 logger.info(`properties hierarchy: ${propHierarchy.join(', ')}`);
 
 // Propagate debug mode if need be
