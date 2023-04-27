@@ -30,6 +30,7 @@ import temp from 'temp';
 import _ from 'underscore';
 
 import type {
+    BufferOkFunc,
     BuildResult,
     BuildStep,
     CompilationCacheKey,
@@ -281,6 +282,8 @@ export class BaseCompiler implements ICompiler {
             }
         } else if (this.lang.id === 'fortran') {
             env.FC = this.compiler.exe;
+        } else if (this.lang.id === 'cuda') {
+            env.CUDACXX = this.compiler.exe;
         } else {
             env.CC = this.compiler.exe;
         }
@@ -444,7 +447,14 @@ export class BaseCompiler implements ICompiler {
         }
 
         const objdumper = new this.objdumperClass();
-        const args = objdumper.getDefaultArgs(outputFilename, demangle, intelAsm, staticReloc, dynamicReloc);
+        const args = objdumper.getDefaultArgs(
+            outputFilename,
+            demangle,
+            intelAsm,
+            staticReloc,
+            dynamicReloc,
+            this.compiler.objdumperArgs,
+        );
 
         if (this.externalparser) {
             const objResult = await this.externalparser.objdumpAndParseAssembly(result.dirPath, args, filters);
@@ -1442,8 +1452,16 @@ export class BaseCompiler implements ICompiler {
         }
     }
 
-    async addArtifactToResult(result: CompilationResult, filepath: string, customType?: string, customTitle?: string) {
+    async addArtifactToResult(
+        result: CompilationResult,
+        filepath: string,
+        customType?: string,
+        customTitle?: string,
+        checkFunc?: BufferOkFunc,
+    ) {
         const file_buffer = await fs.readFile(filepath);
+
+        if (checkFunc && !checkFunc(file_buffer)) return;
 
         const artifact: Artifact = {
             content: file_buffer.toString('base64'),
@@ -1615,7 +1633,7 @@ export class BaseCompiler implements ICompiler {
         }
     }
 
-    runExecutable(executable, executeParameters: ExecutableExecutionOptions, homeDir) {
+    runExecutable(executable: string, executeParameters: ExecutableExecutionOptions, homeDir) {
         const maxExecOutputSize = this.env.ceProps('max-executable-output-size', 32 * 1024);
         // Hardcoded fix for #2339. Ideally I'd have a config option for this, but for now this is plenty good enough.
         executeParameters.env = {
@@ -1626,7 +1644,7 @@ export class BaseCompiler implements ICompiler {
             ...executeParameters.env,
         };
         if (this.compiler.executionWrapper) {
-            executeParameters.args.unshift(executable);
+            executeParameters.args = [...this.compiler.executionWrapperArgs, executable, ...executeParameters.args];
             executable = this.compiler.executionWrapper;
         }
         return this.execBinary(executable, maxExecOutputSize, executeParameters, homeDir);
@@ -1956,6 +1974,8 @@ export class BaseCompiler implements ICompiler {
             return {...this.cmakeBaseEnv, CXXFLAGS: compilerflags};
         } else if (this.lang.id === 'fortran') {
             return {...this.cmakeBaseEnv, FFLAGS: compilerflags};
+        } else if (this.lang.id === 'cuda') {
+            return {...this.cmakeBaseEnv, CUDAFLAGS: compilerflags};
         } else {
             return {...this.cmakeBaseEnv, CFLAGS: compilerflags};
         }
@@ -2031,6 +2051,18 @@ export class BaseCompiler implements ICompiler {
         }
 
         return '';
+    }
+
+    getUsedEnvironmentVariableFlags(makeExecParams) {
+        if (this.lang.id === 'c++') {
+            return utils.splitArguments(makeExecParams.env.CXXFLAGS);
+        } else if (this.lang.id === 'fortran') {
+            return utils.splitArguments(makeExecParams.env.FFLAGS);
+        } else if (this.lang.id === 'cuda') {
+            return utils.splitArguments(makeExecParams.env.CUDAFLAGS);
+        } else {
+            return utils.splitArguments(makeExecParams.env.CFLAGS);
+        }
     }
 
     async cmake(files, key) {
@@ -2126,6 +2158,7 @@ export class BaseCompiler implements ICompiler {
                     code: cmakeStepResult.code,
                     asm: [{text: '<Build failed>'}],
                 };
+                fullResult.result.compilationOptions = this.getUsedEnvironmentVariableFlags(makeExecParams);
                 return fullResult;
             }
 
@@ -2161,13 +2194,7 @@ export class BaseCompiler implements ICompiler {
                 fullResult.result = asmResult;
             }
 
-            if (this.lang.id === 'c++') {
-                fullResult.result.compilationOptions = makeExecParams.env.CXXFLAGS.split(' ');
-            } else if (this.lang.id === 'fortran') {
-                fullResult.result.compilationOptions = makeExecParams.env.FFLAGS.split(' ');
-            } else {
-                fullResult.result.compilationOptions = makeExecParams.env.CFLAGS.split(' ');
-            }
+            fullResult.result.compilationOptions = this.getUsedEnvironmentVariableFlags(makeExecParams);
 
             fullResult.code = 0;
             _.each(fullResult.buildsteps, function (step) {
@@ -2444,7 +2471,7 @@ export class BaseCompiler implements ICompiler {
 
     async postProcessAsm(result, filters?: ParseFiltersAndOutputOptions) {
         if (!result.okToCache || !this.demanglerClass || !result.asm) return result;
-        const demangler = new this.demanglerClass(this.compiler.demangler, this);
+        const demangler = new this.demanglerClass(this.compiler.demangler, this, this.compiler.demanglerArgs);
 
         return await demangler.process(result);
     }
@@ -2465,7 +2492,11 @@ export class BaseCompiler implements ICompiler {
         if (this.compiler.demangler) {
             const result = JSON.stringify(output, null, 4);
             try {
-                const demangleResult = await this.exec(this.compiler.demangler, ['-n', '-p'], {input: result});
+                const demangleResult = await this.exec(
+                    this.compiler.demangler,
+                    [...this.compiler.demanglerArgs, '-n', '-p'],
+                    {input: result},
+                );
                 return JSON.parse(demangleResult.stdout);
             } catch (exception) {
                 // swallow exception and return non-demangled output
@@ -2709,12 +2740,12 @@ but nothing was dumped. Possible causes are:
             return {stdout: [this.compiler.explicitVersion], stderr: [], code: 0};
         }
         const execOptions = this.getDefaultExecOptions();
-        const versionFlag = this.compiler.versionFlag || '--version';
+        const versionFlag = this.compiler.versionFlag || ['--version'];
         execOptions.timeoutMs = 0; // No timeout for --version. A sort of workaround for slow EFS/NFS on the prod site
         execOptions.ldPath = this.getSharedLibraryPathsAsLdLibraryPaths([]);
 
         try {
-            return await this.execCompilerCached(this.compiler.exe, [versionFlag], execOptions);
+            return await this.execCompilerCached(this.compiler.exe, versionFlag, execOptions);
         } catch (err) {
             logger.error(`Unable to get version for compiler '${this.compiler.exe}' - ${err}`);
             return null;

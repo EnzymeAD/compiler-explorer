@@ -55,6 +55,7 @@ export type LanguageKey =
     | 'jakt'
     | 'java'
     | 'julia'
+    | 'javascript'
     | 'kotlin'
     | 'llvm'
     | 'llvm_mir'
@@ -76,6 +77,7 @@ export type LanguageKey =
     | 'swift'
     | 'toit'
     | 'typescript'
+    | 'vala'
     | 'vb'
     | 'zig';
 

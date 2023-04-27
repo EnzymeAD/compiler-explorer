@@ -202,7 +202,7 @@ export class Executor extends Pane<ExecutorState> {
 
         this.contentRoot = this.domRoot.find('.content');
         this.infoByLang = {};
-        this.deferCompiles = hub.deferred;
+        this.deferCompiles = true;
         this.needsCompile = false;
         this.source = '';
         this.lastResult = {code: -1, timedOut: false, stdout: [], stderr: []};
@@ -239,6 +239,10 @@ export class Executor extends Pane<ExecutorState> {
 
         if (this.sourceTreeId) {
             this.compile();
+        }
+
+        if (!this.hub.deferred) {
+            this.undefer();
         }
     }
 

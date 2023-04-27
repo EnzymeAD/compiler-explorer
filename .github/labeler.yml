@@ -129,6 +129,10 @@ lang-nim:
   - lib/compilers/nim.js
   - etc/config/nim.*.properties
   - static/modes/nim-mode.ts
+lang-objc:
+  - etc/config/objc.*.properties
+lang-objc++:
+  - etc/config/objc++.*.properties
 lang-ocaml:
   - lib/compilers/ocaml.js
   - etc/config/ocaml.*.properties
@@ -170,6 +174,10 @@ lang-toit:
 lang-typescript:
   - lib/compilers/typescript.js
   - etc/config/typescript.*.properties
+lang-vala:
+  - lib/compilers/vala.ts
+  - etc/config/vala.*.properties
+  - static/modes/vala-mode.ts
 lang-zig:
   - lib/compilers/zig.js
   - etc/config/zig.*.properties
