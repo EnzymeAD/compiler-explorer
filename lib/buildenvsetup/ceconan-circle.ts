@@ -22,24 +22,27 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import {fileExists} from '../utils.js';
+import {BuildEnvSetupCeConanDirect, ConanBuildProperties} from './ceconan.js';
 
-import {BaseTool} from './base-tool.js';
+export class BuildEnvSetupCeConanCircleDirect extends BuildEnvSetupCeConanDirect {
+    private linkedCompilerId: string;
+    private linkedCompilerType: string;
 
-export class ReadElfTool extends BaseTool {
-    static get key() {
-        return 'readelf-tool';
+    static override get key() {
+        return 'ceconan-circle';
     }
 
-    override async runTool(compilationInfo: Record<any, any>, inputFilepath?: string, args?: string[]) {
-        if (!compilationInfo.filters.binary && !compilationInfo.filters.binaryObject) {
-            return this.createErrorResponse(`${this.tool.name ?? 'readelf'} requires an executable or binary object`);
-        }
+    constructor(compilerInfo, env) {
+        super(compilerInfo, env);
 
-        if (await fileExists(compilationInfo.executableFilename)) {
-            return super.runTool(compilationInfo, compilationInfo.executableFilename, args);
-        } else {
-            return super.runTool(compilationInfo, compilationInfo.outputFilename, args);
-        }
+        this.linkedCompilerId = compilerInfo.buildenvsetup.props('linkedCompilerId');
+        this.linkedCompilerType = compilerInfo.buildenvsetup.props('linkedCompilerType');
+    }
+
+    override async getConanBuildProperties(key): Promise<ConanBuildProperties> {
+        const props = await super.getConanBuildProperties(key);
+        props['compiler'] = this.linkedCompilerType;
+        props['compiler.version'] = this.linkedCompilerId;
+        return props;
     }
 }
