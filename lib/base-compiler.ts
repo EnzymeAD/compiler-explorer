@@ -378,12 +378,15 @@ export class BaseCompiler implements ICompiler {
             options.ldPath = this.getSharedLibraryPathsAsLdLibraryPaths([]);
         }
 
+        // Take a (shallow) copy of the options before we add a random customCwd: The fact we have createAndUseTempDir
+        // set is enough to make us different from an otherwise identical run without createAndUseTempDir. However, the
+        // actual random path is unimportant for caching; and its presence prevents cache hits.
+        const optionsForCache = {...options};
         if (options.createAndUseTempDir) {
-            const tmpDir = await this.newTempDir();
-            options.customCwd = tmpDir;
+            options.customCwd = await this.newTempDir();
         }
 
-        const key = this.getCompilerCacheKey(compiler, args, options);
+        const key = this.getCompilerCacheKey(compiler, args, optionsForCache);
         let result = await this.env.compilerCacheGet(key as any);
         if (!result) {
             result = await this.env.enqueue(async () => await exec.execute(compiler, args, options));
@@ -399,7 +402,7 @@ export class BaseCompiler implements ICompiler {
             }
         }
 
-        if (options.createAndUseTempDir) fs.remove(options.customCwd);
+        if (options.createAndUseTempDir) fs.remove(options.customCwd, () => {});
 
         return result;
     }
@@ -939,7 +942,7 @@ export class BaseCompiler implements ICompiler {
 
     getDefaultOrOverridenToolchainPath(overrides: ConfiguredOverrides): string {
         for (const override of overrides) {
-            if (override.value) {
+            if (override.name !== CompilerOverrideType.env && override.value) {
                 const possible = this.compiler.possibleOverrides?.find(ov => ov.name === override.name);
                 if (possible && possible.name === CompilerOverrideType.toolchain) {
                     return override.value;
@@ -952,7 +955,7 @@ export class BaseCompiler implements ICompiler {
 
     getOverridenToolchainPath(overrides: ConfiguredOverrides): string | false {
         for (const override of overrides) {
-            if (override.value) {
+            if (override.name !== CompilerOverrideType.env && override.value) {
                 const possible = this.compiler.possibleOverrides?.find(ov => ov.name === override.name);
                 if (possible && possible.name === CompilerOverrideType.toolchain) {
                     return override.value;
@@ -968,10 +971,11 @@ export class BaseCompiler implements ICompiler {
         const sysrootPath: string | false =
             overriddenToolchainPath ?? getSysrootByToolchainPath(overriddenToolchainPath);
         const targetOverride = overrides.find(ov => ov.name === CompilerOverrideType.arch);
-        const hasNeedForSysRoot = targetOverride && !targetOverride.value?.includes('x86');
+        const hasNeedForSysRoot =
+            targetOverride && targetOverride.name !== CompilerOverrideType.env && !targetOverride.value.includes('x86');
 
         for (const override of overrides) {
-            if (override.value) {
+            if (override.name !== CompilerOverrideType.env && override.value) {
                 const possible = this.compiler.possibleOverrides?.find(ov => ov.name === override.name);
                 if (!possible) continue;
 
@@ -3096,6 +3100,7 @@ but nothing was dumped. Possible causes are:
             libraryCode: false,
             trim: false,
             binaryObject: false,
+            debugCalls: false,
         };
     }
 }
