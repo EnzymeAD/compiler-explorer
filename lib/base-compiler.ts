@@ -60,7 +60,7 @@ import type {BuildEnvDownloadInfo} from './buildenvsetup/buildenv.interfaces.js'
 import * as cfg from './cfg/cfg.js';
 import {CompilationEnvironment} from './compilation-env.js';
 import {CompilerArguments} from './compiler-arguments.js';
-import {ClangParser, GCCParser, ICCParser} from './compilers/argument-parsers.js';
+import {ClangCParser, ClangParser, GCCCParser, GCCParser, ICCParser} from './compilers/argument-parsers.js';
 import {BaseDemangler, getDemanglerTypeByKey} from './demangler/index.js';
 import {LLVMIRDemangler} from './demangler/llvm.js';
 import * as exec from './exec.js';
@@ -114,8 +114,8 @@ const executionTimeHistogram = new PromClient.Histogram({
 
 export const c_default_target_description =
     'Change the target architecture of the compiler. ' +
-    'Be aware that the architecture might not be fully supported by the compiler' +
-    ' eventhough the option is available. ' +
+    'Be aware that the architecture might not be fully supported by the compiler ' +
+    'even though the option is available. ' +
     'The compiler might also require additional arguments to be fully functional.';
 
 export const c_default_toolchain_description =
@@ -2898,12 +2898,17 @@ but nothing was dumped. Possible causes are:
 
     protected getArgumentParser(): any {
         const exe = this.compiler.exe.toLowerCase();
-        if (exe.includes('icc')) {
+        const exeFilename = path.basename(exe);
+        if (exeFilename.includes('icc')) {
             return ICCParser;
-        } else if (exe.includes('clang') || exe.includes('icpx') || exe.includes('icx')) {
+        } else if (exeFilename.includes('clang++') || exeFilename.includes('icpx')) {
             // check this first as "clang++" matches "g++"
             return ClangParser;
-        } else if (exe.includes('g++') || exe.includes('gcc')) {
+        } else if (exeFilename.includes('clang') || exeFilename.includes('icx')) {
+            return ClangCParser;
+        } else if (exeFilename.includes('gcc')) {
+            return GCCCParser;
+        } else if (exeFilename.includes('g++')) {
             return GCCParser;
         }
         //there is a lot of code around that makes this assumption.
