@@ -29,7 +29,6 @@ import process from 'process';
 import url from 'url';
 
 import * as Sentry from '@sentry/node';
-import bodyParser from 'body-parser';
 import compression from 'compression';
 import express from 'express';
 import fs from 'fs-extra';
@@ -57,12 +56,16 @@ import {startWineInit} from './lib/exec.js';
 import {RemoteExecutionQuery} from './lib/execution/execution-query.js';
 import {initHostSpecialties} from './lib/execution/execution-triple.js';
 import {startExecutionWorkerThread} from './lib/execution/sqs-execution-queue.js';
+import {FormattingService} from './lib/formatting-service.js';
+import {AssemblyDocumentationController} from './lib/handlers/api/assembly-documentation-controller.js';
+import {FormattingController} from './lib/handlers/api/formatting-controller.js';
+import {HealthcheckController} from './lib/handlers/api/healthcheck-controller.js';
+import {SiteTemplateController} from './lib/handlers/api/site-template-controller.js';
+import {SourceController} from './lib/handlers/api/source-controller.js';
 import {CompileHandler} from './lib/handlers/compile.js';
-import * as healthCheck from './lib/handlers/health-check.js';
+import {cached, csp} from './lib/handlers/middleware.js';
 import {NoScriptHandler} from './lib/handlers/noscript.js';
 import {RouteAPI, ShortLinkMetaData} from './lib/handlers/route-api.js';
-import {loadSiteTemplates} from './lib/handlers/site-templates.js';
-import {SourceHandler} from './lib/handlers/source.js';
 import {languages as allLanguages} from './lib/languages.js';
 import {logger, logToLoki, logToPapertrail, makeLogStream, suppressConsoleLog} from './lib/logger.js';
 import {setupMetricsServer} from './lib/metrics-server.js';
@@ -83,7 +86,7 @@ global.ce_base_directory = new URL('.', import.meta.url);
 
 (nopt as any).invalidHandler = (key: string, val: unknown, types: unknown[]) => {
     logger.error(
-        `Command line argument type error for "--${key}=${val}", 
+        `Command line argument type error for "--${key}=${val}",
         expected ${types.map((t: unknown) => typeof t).join(' | ')}`,
     );
 };
@@ -100,7 +103,7 @@ export type CompilerExplorerOptions = Partial<{
     noRemoteFetch: boolean;
     tmpDir: string;
     wsl: boolean;
-    language: string;
+    language: string[];
     noCache: boolean;
     ensureNoIdClash: boolean;
     logHost: string;
@@ -131,7 +134,7 @@ const opts = nopt({
     tmpDir: [String],
     wsl: [Boolean],
     // If specified, only loads the specified languages, resulting in faster loadup/iteration times
-    language: [String],
+    language: [String, Array],
     // Do not use caching for compilation results (Requests might still be cached by the client's browser)
     noCache: [Boolean],
     // Don't cleanly run if two or more compilers have clashing ids
@@ -218,12 +221,21 @@ export type AppDefaultArguments = {
     port: number;
     gitReleaseName: string;
     releaseBuildNumber: string;
-    wantedLanguages: string | null;
+    wantedLanguages: string[] | null;
     doCache: boolean;
     fetchCompilersFromRemote: boolean;
     ensureNoCompilerClash: boolean | undefined;
     suppressConsoleLog: boolean;
 };
+
+function patchUpLanguageArg(languages: string[] | undefined): string[] | null {
+    if (!languages) return null;
+    if (languages.length === 1) {
+        // Support old style comma-separated language args.
+        return languages[0].split(',');
+    }
+    return languages;
+}
 
 // Set default values for omitted arguments
 const defArgs: AppDefaultArguments = {
@@ -233,7 +245,7 @@ const defArgs: AppDefaultArguments = {
     port: opts.port || 10240,
     gitReleaseName: gitReleaseName,
     releaseBuildNumber: releaseBuildNumber,
-    wantedLanguages: opts.language || null,
+    wantedLanguages: patchUpLanguageArg(opts.language),
     doCache: !opts.noCache,
     fetchCompilersFromRemote: !opts.noRemoteFetch,
     ensureNoCompilerClash: opts.ensureNoIdClash,
@@ -288,13 +300,15 @@ props.initialize(configDir, propHierarchy);
 // Instantiate a function to access records concerning "compiler-explorer"
 // in hidden object props.properties
 const ceProps = props.propsFor('compiler-explorer');
-defArgs.wantedLanguages = ceProps<string>('restrictToLanguages', defArgs.wantedLanguages);
+const restrictToLanguages = ceProps<string>('restrictToLanguages');
+if (restrictToLanguages) {
+    defArgs.wantedLanguages = restrictToLanguages.split(',');
+}
 
 const languages = (() => {
     if (defArgs.wantedLanguages) {
         const filteredLangs: Partial<Record<LanguageKey, Language>> = {};
-        const passedLangs = defArgs.wantedLanguages.split(',');
-        for (const wantedLang of passedLangs) {
+        for (const wantedLang of defArgs.wantedLanguages) {
             for (const lang of Object.values(allLanguages)) {
                 if (lang.id === wantedLang || lang.name === wantedLang || lang.alias.includes(wantedLang)) {
                     filteredLangs[lang.id] = lang;
@@ -324,19 +338,6 @@ const httpRoot = urljoin(ceProps('httpRoot', '/'), '/');
 
 const staticUrl = ceProps<string | undefined>('staticUrl');
 const staticRoot = urljoin(staticUrl || urljoin(httpRoot, 'static'), '/');
-
-function staticHeaders(res: express.Response) {
-    if (staticMaxAgeSecs) {
-        res.setHeader('Cache-Control', 'public, max-age=' + staticMaxAgeSecs + ', must-revalidate');
-    }
-}
-
-function contentPolicyHeader(res: express.Response) {
-    // TODO: re-enable CSP
-    // if (csp) {
-    //     res.setHeader('Content-Security-Policy', csp);
-    // }
-}
 
 function measureEventLoopLag(delayMs: number) {
     return new Promise<number>(resolve => {
@@ -523,11 +524,15 @@ async function main() {
     // Initialise express and then sentry. Sentry as early as possible to catch errors during startup.
     const webServer = express(),
         router = express.Router();
+
     SetupSentry(aws.getConfig('sentryDsn'), ceProps, releaseBuildNumber, gitReleaseName, defArgs);
 
     startWineInit();
 
     RemoteExecutionQuery.initRemoteExecutionArchs(ceProps, defArgs.env);
+
+    const formattingService = new FormattingService();
+    await formattingService.initialize(ceProps);
 
     const clientOptionsHandler = new ClientOptionsHandler(sources, compilerProps, defArgs);
     const compilationQueue = CompilationQueue.fromProps(compilerProps.ceProps);
@@ -535,13 +540,27 @@ async function main() {
         compilerProps,
         awsProps,
         compilationQueue,
+        formattingService,
         defArgs.doCache,
     );
     const compileHandler = new CompileHandler(compilationEnvironment, awsProps);
     const storageType = getStorageTypeByKey(storageSolution);
     const storageHandler = new storageType(httpRoot, compilerProps, awsProps);
-    const sourceHandler = new SourceHandler(sources, staticHeaders);
     const compilerFinder = new CompilerFinder(compileHandler, compilerProps, awsProps, defArgs, clientOptionsHandler);
+
+    const isExecutionWorker = ceProps<boolean>('execqueue.is_worker', false);
+    const healthCheckFilePath = ceProps('healthCheckFilePath', null) as string | null;
+
+    const siteTemplateController = new SiteTemplateController();
+    const sourceController = new SourceController(sources);
+    const assemblyDocumentationController = new AssemblyDocumentationController();
+    const healthCheckController = new HealthcheckController(
+        compilationQueue,
+        healthCheckFilePath,
+        compileHandler,
+        isExecutionWorker,
+    );
+    const formattingController = new FormattingController(formattingService);
 
     logger.info('=======================================');
     if (gitReleaseName) logger.info(`  git release ${gitReleaseName}`);
@@ -549,8 +568,6 @@ async function main() {
 
     let initialCompilers: CompilerInfo[];
     let prevCompilers: CompilerInfo[];
-
-    const isExecutionWorker = ceProps<boolean>('execqueue.is_worker', false);
 
     if (opts.prediscovered) {
         const prediscoveredCompilersJson = await fs.readFile(opts.prediscovered, 'utf8');
@@ -592,8 +609,6 @@ async function main() {
         process.exit(0);
     }
 
-    const healthCheckFilePath = ceProps('healthCheckFilePath', false);
-
     // Exported to allow compilers to refer to other existing compilers.
     global.handler_config = {
         compileHandler,
@@ -605,8 +620,6 @@ async function main() {
         defArgs,
         renderConfig,
         renderGoldenLayout,
-        staticHeaders,
-        contentPolicyHeader,
     };
 
     const noscriptHandler = new NoScriptHandler(router, global.handler_config);
@@ -653,6 +666,9 @@ async function main() {
                 ip: true,
             }),
         )
+        // The healthcheck controller is hoisted to prevent it from being logged.
+        // TODO: Migrate the logger to a shared middleware.
+        .use(healthCheckController.createRouter())
         // eslint-disable-next-line no-unused-vars
         .use(
             responseTime((req, res, time) => {
@@ -663,12 +679,6 @@ async function main() {
                     });
                 }
             }),
-        )
-        // Handle healthchecks at the root, as they're not expected from the outside world
-        .use(
-            '/healthcheck',
-            new healthCheck.HealthCheckHandler(compilationQueue, healthCheckFilePath, compileHandler, isExecutionWorker)
-                .handle,
         )
         .use(httpRoot, router)
         .use((req, res, next) => {
@@ -689,8 +699,6 @@ async function main() {
         });
 
     const sponsorConfig = loadSponsorsFromString(fs.readFileSync(configDir + '/sponsors.yaml', 'utf8'));
-
-    loadSiteTemplates(configDir);
 
     function renderConfig(extra: Record<string, any>, urlOptions?: any) {
         const urlOptionsAllowed = ['readOnly', 'hideEditorToolbars', 'language'];
@@ -728,9 +736,6 @@ async function main() {
         req: express.Request,
         res: express.Response,
     ) {
-        staticHeaders(res);
-        contentPolicyHeader(res);
-
         const embedded = req.query.embedded === 'true' ? true : false;
 
         res.render(
@@ -749,8 +754,6 @@ async function main() {
     }
 
     const embeddedHandler = function (req: express.Request, res: express.Response) {
-        staticHeaders(res);
-        contentPolicyHeader(res);
         res.render(
             'embed',
             renderConfig(
@@ -793,9 +796,7 @@ async function main() {
             }),
         )
         .use(compression())
-        .get('/', (req, res) => {
-            staticHeaders(res);
-            contentPolicyHeader(res);
+        .get('/', cached, csp, (req, res) => {
             res.render(
                 'index',
                 renderConfig(
@@ -807,12 +808,10 @@ async function main() {
                 ),
             );
         })
-        .get('/e', embeddedHandler)
+        .get('/e', cached, csp, embeddedHandler)
         // legacy. not a 301 to prevent any redirect loops between old e links and embed.html
-        .get('/embed.html', embeddedHandler)
-        .get('/embed-ro', (req, res) => {
-            staticHeaders(res);
-            contentPolicyHeader(res);
+        .get('/embed.html', cached, csp, embeddedHandler)
+        .get('/embed-ro', cached, csp, (req, res) => {
             res.render(
                 'embed',
                 renderConfig(
@@ -825,24 +824,19 @@ async function main() {
                 ),
             );
         })
-        .get('/robots.txt', (req, res) => {
-            staticHeaders(res);
+        .get('/robots.txt', cached, (req, res) => {
             res.end('User-agent: *\nSitemap: https://godbolt.org/sitemap.xml\nDisallow:');
         })
-        .get('/sitemap.xml', (req, res) => {
-            staticHeaders(res);
+        .get('/sitemap.xml', cached, (req, res) => {
             res.set('Content-Type', 'application/xml');
             res.render('sitemap');
         })
         .use(sFavicon(utils.resolvePathFromAppRoot('static/favicons', getFaviconFilename())))
-        .get('/client-options.js', (req, res) => {
-            staticHeaders(res);
+        .get('/client-options.js', cached, (req, res) => {
             res.set('Content-Type', 'application/javascript');
             res.end(`window.compilerExplorerOptions = ${clientOptionsHandler.getJSON()};`);
         })
-        .use('/bits/:bits(\\w+).html', (req, res) => {
-            staticHeaders(res);
-            contentPolicyHeader(res);
+        .use('/bits/:bits(\\w+).html', cached, csp, (req, res) => {
             res.render(
                 `bits/${sanitize(req.params.bits)}`,
                 renderConfig(
@@ -854,11 +848,12 @@ async function main() {
                 ),
             );
         })
-        .use(bodyParser.json({limit: ceProps('bodyParserLimit', maxUploadSize)}))
-        .use('/source', sourceHandler.handle.bind(sourceHandler))
-        .get('/g/:id', oldGoogleUrlHandler)
-        // Deprecated old route for this -- TODO remove in late 2021
-        .post('/shortener', routeApi.apiHandler.shortener.handle.bind(routeApi.apiHandler.shortener));
+        .use(express.json({limit: ceProps('bodyParserLimit', maxUploadSize)}))
+        .use(siteTemplateController.createRouter())
+        .use(sourceController.createRouter())
+        .use(assemblyDocumentationController.createRouter())
+        .use(formattingController.createRouter())
+        .get('/g/:id', oldGoogleUrlHandler);
 
     noscriptHandler.InitializeRoutes({limit: ceProps('bodyParserLimit', maxUploadSize)});
     routeApi.InitializeRoutes();

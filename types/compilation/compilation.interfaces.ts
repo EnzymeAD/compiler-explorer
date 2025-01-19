@@ -25,7 +25,7 @@
 import {BuildEnvDownloadInfo} from '../../lib/buildenvsetup/buildenv.interfaces.js';
 import {IAsmParser} from '../../lib/parsers/asm-parser.interfaces.js';
 import type {GccDumpViewSelectedPass} from '../../static/panes/gccdump-view.interfaces.js';
-import {OptCodeEntry} from '../../static/panes/opt-view.interfaces.js';
+import {OptRemark} from '../../static/panes/opt-view.interfaces.js';
 import type {PPOptions} from '../../static/panes/pp-view.interfaces.js';
 import {suCodeEntry} from '../../static/panes/stack-usage-view.interfaces.js';
 import {ParsedAsmResultLine} from '../asmresult/asmresult.interfaces.js';
@@ -49,8 +49,10 @@ export type ActiveTool = {
     stdin: string;
 };
 
+// This is a legacy type that allows a single string to be passed as args but is otherwise identical to ActiveTool:
+export type LegacyCompatibleActiveTool = Exclude<ActiveTool, 'args'> & {args: string | string[]};
+
 export type UnparsedExecutionParams = {
-    // TODO: narrow to string[]
     args?: string | string[];
     stdin?: string;
     runtimeTools?: ConfiguredRuntimeTools;
@@ -169,6 +171,7 @@ export type CompilationResult = {
     stderr: ResultLine[];
     truncated?: boolean;
     didExecute?: boolean;
+    validatorTool?: boolean;
     executableFilename?: string;
     execResult?: CompilationResult;
     gnatDebugOutput?: ResultLine[];
@@ -183,7 +186,7 @@ export type CompilationResult = {
 
     ppOutput?: PPOutput;
 
-    optOutput?: OptCodeEntry[];
+    optOutput?: OptRemark[];
     optPath?: string;
 
     stackUsageOutput?: suCodeEntry[];

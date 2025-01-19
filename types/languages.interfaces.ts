@@ -73,6 +73,7 @@ export type LanguageKey =
     | 'modula2'
     | 'nim'
     | 'ocaml'
+    | 'odin'
     | 'objc'
     | 'objc++'
     | 'openclc'
@@ -83,6 +84,7 @@ export type LanguageKey =
     | 'ruby'
     | 'rust'
     | 'scala'
+    | 'slang'
     | 'solidity'
     | 'spice'
     | 'spirv'
@@ -93,6 +95,7 @@ export type LanguageKey =
     | 'v'
     | 'vala'
     | 'vb'
+    | 'vyper'
     | 'wasm'
     | 'zig'
     | 'ylc';

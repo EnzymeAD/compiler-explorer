@@ -57,20 +57,23 @@ export {
     DotNetCoreClrCompiler,
     DotNetCrossgen2Compiler,
     DotNetIlDasmCompiler,
+    DotNetIlSpyCompiler,
     DotNetLegacyCompiler,
     DotNetMonoCompiler,
     DotNetNativeAotCompiler,
 } from './dotnet.js';
 export {EDGCompiler} from './edg.js';
-export {EllccCompiler} from './ellcc.js';
+export {ElixirAsmCompiler} from './elixirasm.js';
 export {ElixirCompiler} from './elixir.js';
-export {ErlangCompiler} from './erlang.js';
+export {EllccCompiler} from './ellcc.js';
 export {ErlangAsmCompiler} from './erlangasm.js';
+export {ErlangCompiler} from './erlang.js';
 export {EWARMCompiler} from './ewarm.js';
 export {EWAVRCompiler} from './ewavr.js';
 export {FakeCompiler} from './fake-for-test.js';
 export {FlangCompiler} from './flang.js';
 export {FlangFC1Compiler} from './flang-fc1.js';
+export {LFortranCompiler} from './lfortran.js';
 export {FortranCompiler} from './fortran.js';
 export {FPCCompiler} from './pascal.js';
 export {GCCCompiler} from './gcc.js';
@@ -106,6 +109,7 @@ export {NvccCompiler} from './nvcc.js';
 export {NvrtcCompiler} from './nvrtc.js';
 export {NvcppCompiler} from './nvcpp.js';
 export {OCamlCompiler} from './ocaml.js';
+export {OdinCompiler} from './odin.js';
 export {OptCompiler} from './opt.js';
 export {OSACATool} from './osaca.js';
 export {PascalWinCompiler} from './pascal-win.js';
@@ -114,6 +118,7 @@ export {PPCICompiler} from './ppci.js';
 export {PtxAssembler} from './ptxas.js';
 export {PythonCompiler} from './python.js';
 export {PythranCompiler} from './pythran.js';
+export {QNXCompiler} from './qnx.js';
 export {R8Compiler} from './r8.js';
 export {RacketCompiler} from './racket.js';
 export {RGACompiler} from './rga.js';
@@ -122,6 +127,7 @@ export {RustcCgGCCCompiler} from './rustc-cg-gcc.js';
 export {RustCompiler} from './rust.js';
 export {ScalaCompiler} from './scala.js';
 export {SdccCompiler} from './sdcc.js';
+export {SlangCompiler} from './slang.js';
 export {SolidityCompiler} from './solidity.js';
 export {SolidityZKsyncCompiler} from './solidity-zksync.js';
 export {SpiceCompiler} from './spice.js';
@@ -137,6 +143,7 @@ export {TurboCCompiler} from './turboc.js';
 export {TypeScriptNativeCompiler} from './typescript-native.js';
 export {VCompiler} from './v.js';
 export {ValaCompiler} from './vala.js';
+export {VyperCompiler} from './vyper.js';
 export {V8Compiler} from './v8.js';
 export {Win32Compiler} from './win32.js';
 export {Win32Vc6Compiler} from './win32-vc6.js';

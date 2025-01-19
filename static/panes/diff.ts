@@ -198,9 +198,12 @@ export class Diff extends MonacoPane<monaco.editor.IStandaloneDiffEditor, DiffSt
     compilers: Record<string | number, CompilerEntry> = {};
     lhs: DiffStateObject;
     rhs: DiffStateObject;
-    selectize: SelectizeType = {} as any; // will be filled in by the constructor
+    selectize: SelectizeType;
     constructor(hub: Hub, container: Container, state: MonacoPaneState & DiffState) {
         super(hub, container, state);
+
+        // note: keep this hacky line, properties will be filled in later (1 by 1)
+        this.selectize = {} as any;
 
         this.lhs = new DiffStateObject(
             state.lhs,

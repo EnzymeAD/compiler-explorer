@@ -30,16 +30,17 @@ import semverParser from 'semver';
 import _ from 'underscore';
 
 import {AppDefaultArguments} from '../app.js';
+import {splitArguments} from '../shared/common-utils.js';
 import {CompilerInfo} from '../types/compiler.interfaces.js';
 import type {LanguageKey} from '../types/languages.interfaces.js';
+import type {Source} from '../types/source.interfaces.js';
 import type {ToolTypeKey} from '../types/tool.interfaces.js';
 
 import {logger} from './logger.js';
 import type {PropertyGetter, PropertyValue} from './properties.interfaces.js';
 import {CompilerProps} from './properties.js';
-import {Source} from './sources/index.js';
 import {BaseTool, getToolTypeByKey} from './tooling/index.js';
-import {asSafeVer, getHash, splitArguments, splitIntoArray} from './utils.js';
+import {asSafeVer, getHash, splitIntoArray} from './utils.js';
 
 // TODO: Figure out if same as libraries.interfaces.ts?
 export type VersionInfo = {

@@ -22,7 +22,6 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import bodyParser from 'body-parser';
 import express from 'express';
 import _ from 'underscore';
 
@@ -41,10 +40,7 @@ import {SentryCapture} from '../sentry.js';
 import {BaseShortener, getShortenerTypeByKey} from '../shortener/index.js';
 import {StorageBase} from '../storage/index.js';
 
-import {withAssemblyDocumentationProviders} from './assembly-documentation.js';
 import {CompileHandler} from './compile.js';
-import {FormattingHandler} from './formatting.js';
-import {getSiteTemplates} from './site-templates.js';
 
 function methodNotAllowed(req: express.Request, res: express.Response) {
     res.send('Method Not Allowed');
@@ -92,16 +88,13 @@ export class ApiHandler {
 
         this.handle.route('/libraries').get(this.handleAllLibraries.bind(this)).all(methodNotAllowed);
 
-        // Binding for assembly documentation
-        withAssemblyDocumentationProviders(this.handle);
-        // Legacy binding for old clients.
         this.handle
             .route('/asm/:opcode')
             .get((req, res) => res.redirect(`amd64/${req.params.opcode}`))
             .all(methodNotAllowed);
 
         const maxUploadSize = ceProps('maxUploadSize', '1mb');
-        const textParser = bodyParser.text({limit: ceProps('bodyParserLimit', maxUploadSize), type: () => true});
+        const textParser = express.text({limit: ceProps('bodyParserLimit', maxUploadSize), type: () => true});
 
         this.handle
             .route('/compiler/:compiler/compile')
@@ -126,26 +119,6 @@ export class ApiHandler {
             .post(compileHandler.handleOptimizationArguments.bind(compileHandler))
             .get(compileHandler.handleOptimizationArguments.bind(compileHandler))
             .all(methodNotAllowed);
-
-        const formatHandler = new FormattingHandler(ceProps);
-        this.handle
-            .route('/format/:tool')
-            .post((req, res) => formatHandler.handle(req, res))
-            .all(methodNotAllowed);
-        this.handle
-            .route('/formats')
-            .get((req, res) => {
-                const all = formatHandler.getFormatterInfo();
-                res.send(all);
-            })
-            .all(methodNotAllowed);
-        this.handle
-            .route('/siteTemplates')
-            .get((req, res) => {
-                res.send(getSiteTemplates());
-            })
-            .all(methodNotAllowed);
-
         this.handle.route('/shortlinkinfo/:id').get(this.shortlinkInfoHandler.bind(this)).all(methodNotAllowed);
 
         const shortenerType = getShortenerTypeByKey(urlShortenService);

@@ -78,7 +78,7 @@ import {CompilerShared} from '../compiler-shared.js';
 import {SentryCapture} from '../sentry.js';
 import {LLVMIrBackendOptions} from '../compilation/ir.interfaces.js';
 import {InstructionSet} from '../instructionsets.js';
-import {escapeHTML} from '../../shared/common-utils.js';
+import {splitArguments, escapeHTML} from '../../shared/common-utils.js';
 import {CompilerVersionInfo, setCompilerVersionPopoverForPane} from '../widgets/compiler-version-info.js';
 import {ClangirBackendOptions} from '../compilation/clangir.interfaces.js';
 import {LanguageKey} from '../languages.interfaces.js';
@@ -96,7 +96,7 @@ const OpcodeCache = new LRUCache<string, CachedOpcode>({
     },
 });
 
-function patchOldFilters(filters) {
+function patchOldFilters(filters: Partial<Record<string, boolean>> | undefined): Record<string, boolean> | undefined {
     if (filters === undefined) return undefined;
     // Filters are of the form {filter: true|false¸ ...}. In older versions, we used
     // to suppress the {filter:false} form. This means we can't distinguish between
@@ -108,7 +108,7 @@ function patchOldFilters(filters) {
     ['binary', 'labels', 'directives', 'commentOnly', 'trim', 'intel', 'debugCalls'].forEach(oldFilter => {
         if (filters[oldFilter] === undefined) filters[oldFilter] = false;
     });
-    return filters;
+    return filters as Record<string, boolean>;
 }
 
 const languages = options.languages;
@@ -1205,12 +1205,12 @@ export class Compiler extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Co
             if (content.componentState.id === this.id) {
                 tools.push({
                     id: content.componentState.toolId,
-                    args: content.componentState.args,
+                    args: splitArguments(content.componentState.args),
                     stdin: content.componentState.stdin,
                 });
             }
         } else if (content.content) {
-            content.content.forEach(subcontent => {
+            content.content.forEach((subcontent: any) => {
                 tools = this.findTools(subcontent, tools);
             });
         }
@@ -1225,7 +1225,7 @@ export class Compiler extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Co
         if (newToolSettings) {
             tools.push({
                 id: newToolSettings.toolId,
-                args: newToolSettings.args ? newToolSettings.args.split('\n') : [],
+                args: splitArguments(newToolSettings.args),
                 stdin: newToolSettings.stdin ?? '',
             });
         }
@@ -2527,7 +2527,7 @@ export class Compiler extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Co
         this.noBinaryFiltersButtons = this.domRoot.find('.nonbinary');
     }
 
-    override registerButtons(state) {
+    override registerButtons(state: CompilerCurrentState) {
         super.registerButtons(state);
         this.filters = new Toggles(this.domRoot.find('.filters'), patchOldFilters(state.filters));
 

@@ -31,7 +31,6 @@ import {fileURLToPath} from 'url';
 import fs from 'fs-extra';
 import {ComponentConfig, ItemConfigType} from 'golden-layout';
 import semverParser from 'semver';
-import {parse as quoteParse} from 'shell-quote';
 import _ from 'underscore';
 
 import type {CacheableValue} from '../types/cache.interfaces.js';
@@ -51,8 +50,13 @@ export function splitLines(text: string): string[] {
     return result;
 }
 
-export function eachLine(text: string, func: (line: string) => ResultLine | void): (ResultLine | void)[] {
-    return splitLines(text).map(func);
+/**
+ * Applies a function to each line of text split by `splitLines`
+ */
+export function eachLine(text: string, func: (line: string) => void): void {
+    for (const line of splitLines(text)) {
+        func(line);
+    }
 }
 
 export function expandTabs(line: string): string {
@@ -437,14 +441,6 @@ export function splitIntoArray(input?: string, defaultArray: string[] = []): str
     }
 }
 
-export function splitArguments(options = ''): string[] {
-    // escape hashes first, otherwise they're interpreted as comments
-    const escapedOptions = options.replaceAll('#', '\\#');
-    return _.chain(quoteParse(escapedOptions).map((x: any) => (typeof x === 'string' ? x : (x.pattern as string))))
-        .compact()
-        .value();
-}
-
 /***
  * Absolute path to the root of the application
  */
@@ -540,4 +536,11 @@ export function getEmptyExecutionResult(): BasicExecutionResult {
 
 export function deltaTimeNanoToMili(startTime: bigint, endTime: bigint): number {
     return Number((endTime - startTime) / BigInt(1_000_000));
+}
+
+/**
+ * Sleep for a number of milliseconds.
+ */
+export async function sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
