@@ -25,8 +25,8 @@
 import path from 'node:path';
 import process from 'node:process';
 
+import fs from 'node:fs/promises';
 import * as Sentry from '@sentry/node';
-import fs from 'fs-extra';
 import _ from 'underscore';
 
 import {splitArguments} from '../../shared/common-utils.js';
@@ -288,7 +288,10 @@ export class ClangParser extends BaseParser {
             compiler.compiler.minIrArgs = ['-emit-llvm'];
         }
 
-        if (ClangParser.hasSupport(options, '-emit-cir')) {
+        // if (ClangParser.hasSupport(options, '-emit-cir')) {
+        // #7265: clang-trunk supposedly has '-emit-cir', but it's not doing much. Checking explicitly
+        // for clangir in the compiler name instead.
+        if (compiler.compiler.name?.includes('clangir')) {
             compiler.compiler.supportsClangirView = true;
         }
 
@@ -1057,6 +1060,16 @@ export class Z88dkParser extends BaseParser {
 export class WasmtimeParser extends BaseParser {
     static override async parse(compiler: BaseCompiler) {
         await WasmtimeParser.getOptions(compiler, '--help');
+        return compiler;
+    }
+}
+
+export class ZigParser extends GCCParser {
+    static override async parse(compiler: BaseCompiler) {
+        const results = await Promise.all([ZigParser.getOptions(compiler, 'build-obj --help')]);
+        const options = Object.assign({}, ...results);
+        await GCCParser.setCompilerSettingsFromOptions(compiler, options);
+        if (GCCParser.hasSupportStartsWith(options, '-target ')) compiler.compiler.supportsHyphenTarget = true;
         return compiler;
     }
 }

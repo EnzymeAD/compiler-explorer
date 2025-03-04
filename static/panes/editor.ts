@@ -1278,7 +1278,7 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
             return;
         }
 
-        const result: Record<number, boolean> = {};
+        const result: Record<number, number> = {};
         // First, note all lines used.
         for (const [compilerId, asm] of Object.entries(this.asmByCompiler)) {
             asm?.forEach(asmLine => {
@@ -1294,7 +1294,7 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
                             if (asmLine.source && asmLine.source.line > 0) {
                                 const sourcefilename = asmLine.source.file ? asmLine.source.file : defaultFile;
                                 if (this.id === tree.multifileService.getEditorIdByFilename(sourcefilename)) {
-                                    result[asmLine.source.line - 1] = true;
+                                    result[asmLine.source.line - 1] = 1;
                                 }
                             }
                         }
@@ -1307,7 +1307,7 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
                         (asmLine.source.file === null || asmLine.source.mainsource) &&
                         asmLine.source.line > 0
                     ) {
-                        result[asmLine.source.line - 1] = true;
+                        result[asmLine.source.line - 1] = 1;
                     }
                 }
             });
@@ -1321,7 +1321,7 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
         this.updateColours(result);
     }
 
-    updateColours(colours) {
+    updateColours(colours: Record<number, number>) {
         colour.applyColours(colours, this.settings.colourScheme, this.editorDecorations);
         this.eventHub.emit('colours', this.id, colours, this.settings.colourScheme);
     }
@@ -1915,7 +1915,7 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
 
     getSelectizeRenderHtml(
         data: LanguageSelectData,
-        escape: typeof escape_html,
+        escapeHtml: typeof escape_html,
         width: number,
         height: number,
     ): string {
@@ -1946,16 +1946,16 @@ export class Editor extends MonacoPane<monaco.editor.IStandaloneCodeEditor, Edit
         if (data.tooltip) {
             result += ' title="' + data.tooltip + '"';
         }
-        result += '>' + escape(data.name) + '</div></div>';
+        result += '>' + escapeHtml(data.name) + '</div></div>';
         return result;
     }
 
-    renderSelectizeOption(data: LanguageSelectData, escape: typeof escape_html) {
-        return this.getSelectizeRenderHtml(data, escape, 23, 23);
+    renderSelectizeOption(data: LanguageSelectData, escapeHtml: typeof escape_html) {
+        return this.getSelectizeRenderHtml(data, escapeHtml, 23, 23);
     }
 
-    renderSelectizeItem(data: LanguageSelectData, escape: typeof escape_html) {
-        return this.getSelectizeRenderHtml(data, escape, 20, 20);
+    renderSelectizeItem(data: LanguageSelectData, escapeHtml: typeof escape_html) {
+        return this.getSelectizeRenderHtml(data, escapeHtml, 20, 20);
     }
 
     onCompiler(compilerId: number, compiler: unknown, options: string, editorId: number, treeId: number): void {}

@@ -22,12 +22,11 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-import os from 'node:os';
 import path from 'node:path';
 
-import fs from 'fs-extra';
+import fs from 'node:fs/promises';
+
 import * as PromClient from 'prom-client';
-import temp from 'temp';
 import _ from 'underscore';
 
 import {splitArguments, unique} from '../shared/common-utils.js';
@@ -83,6 +82,7 @@ import {moveArtifactsIntoResult} from './artifact-utils.js';
 import {assert, unwrap} from './assert.js';
 import type {BuildEnvDownloadInfo} from './buildenvsetup/buildenv.interfaces.js';
 import {BuildEnvSetupBase, getBuildEnvTypeByKey} from './buildenvsetup/index.js';
+import {BaseCache} from './cache/base.js';
 import * as cfg from './cfg/cfg.js';
 import {CompilationEnvironment} from './compilation-env.js';
 import {CompilerArguments} from './compiler-arguments.js';
@@ -124,6 +124,7 @@ import {HeaptrackWrapper} from './runtime-tools/heaptrack-wrapper.js';
 import {LibSegFaultHelper} from './runtime-tools/libsegfault-helper.js';
 import {SentryCapture} from './sentry.js';
 import * as StackUsage from './stack-usage-transformer.js';
+import * as temp from './temp.js';
 import {
     clang_style_sysroot_flag,
     getSpecificTargetBasedOnToolchainPath,
@@ -139,6 +140,7 @@ import {
 } from './toolchain-utils.js';
 import type {ITool} from './tooling/base-tool.interface.js';
 import * as utils from './utils.js';
+import {resultLinesToText} from './utils.js';
 
 const compilationTimeHistogram = new PromClient.Histogram({
     name: 'ce_base_compiler_compilation_duration_seconds',
@@ -180,7 +182,7 @@ export interface SimpleOutputFilenameCompiler {
     getOutputFilename(dirPath: string): string;
 }
 
-function isOutputLikelyLllvmIr(compilerOptions) {
+function isOutputLikelyLllvmIr(compilerOptions: string[]): boolean {
     return compilerOptions && (compilerOptions.includes('-emit-llvm') || compilerOptions.includes('-mlir-to-llvmir'));
 }
 
@@ -408,9 +410,7 @@ export class BaseCompiler {
     }
 
     async newTempDir(): Promise<string> {
-        // `temp` caches the os tmp dir on import (which we may change), so here we ensure we use the current os.tmpdir
-        // each time.
-        return await temp.mkdir({prefix: utils.ce_temp_prefix, dir: os.tmpdir()});
+        return await temp.mkdir(utils.ce_temp_prefix);
     }
 
     optOutputRequested(options: string[]) {
@@ -459,22 +459,33 @@ export class BaseCompiler {
         }
 
         const key = this.getCompilerCacheKey(compiler, args, optionsForCache);
-        let result = await this.env.compilerCacheGet(key as any);
-        if (!result) {
-            result = await this.env.enqueue(async () => await this.exec(compiler, args, options));
-            if (result.okToCache) {
-                this.env
-                    .compilerCachePut(key as any, result, undefined)
-                    .then(() => {
-                        // Do nothing, but we don't await here.
-                    })
-                    .catch(e => {
-                        logger.info('Uncaught exception caching compilation results', e);
-                    });
-            }
+        const hash = BaseCache.hash(key);
+
+        let result = await this.env.compilerCacheGet(key);
+
+        if (!result && this.env.willBeInCacheSoon(hash)) {
+            result = await this.env.enqueue(async () => {
+                return await this.env.compilerCacheGet(key);
+            });
         }
 
-        if (options.createAndUseTempDir) fs.remove(options.customCwd!, () => {});
+        if (!result) {
+            this.env.setCachingInProgress(hash);
+            result = await this.env.enqueue(async () => {
+                const res = await this.exec(compiler, args, options);
+                if (res.okToCache) {
+                    try {
+                        await this.env.compilerCachePut(key, res, undefined);
+                    } catch (e) {
+                        logger.info('Uncaught exception caching compilation results', e);
+                    }
+                }
+                this.env.clearCachingInProgress(hash);
+                return res;
+            });
+        }
+
+        if (options.createAndUseTempDir) fs.rm(options.customCwd!, {recursive: true, force: true}).catch(() => {});
 
         return result;
     }
@@ -1404,7 +1415,7 @@ export class BaseCompiler {
         languageId: string;
     }> {
         const irPath = this.getIrOutputFilename(output.inputFilename!, filters);
-        if (await fs.pathExists(irPath)) {
+        if (await utils.fileExists(irPath)) {
             const output = await fs.readFile(irPath, 'utf8');
             return await this.llvmIr.process(output, irOptions);
         }
@@ -1473,6 +1484,14 @@ export class BaseCompiler {
         const compileStart = performance.now();
         const output = await this.runCompiler(this.compiler.exe, newOptions, this.filename(inputFilename), execOptions);
         const compileEnd = performance.now();
+
+        if (output.code) {
+            return {
+                error: `Invocation failed: ${resultLinesToText(output.stderr)}${resultLinesToText(output.stdout)}}`,
+                results: {},
+                compileTime: output.execTime || compileEnd - compileStart,
+            };
+        }
 
         if (output.timedOut) {
             return {
@@ -1837,7 +1856,7 @@ export class BaseCompiler {
             if (!file.filename) throw new Error('One of more files do not have a filename');
 
             const fullpath = this.getExtraFilepath(dirPath, file.filename);
-            filesToWrite.push(fs.outputFile(fullpath, file.contents));
+            filesToWrite.push(utils.outputTextFile(fullpath, file.contents));
         }
 
         return Promise.all(filesToWrite);
@@ -2017,7 +2036,7 @@ export class BaseCompiler {
         } catch (err) {
             logger.error('Caught an error trying to put to cache: ', {err});
         } finally {
-            fs.remove(packDir);
+            fs.rm(packDir, {recursive: true, force: true}).catch(() => {});
         }
     }
 
@@ -2138,7 +2157,7 @@ export class BaseCompiler {
         }
 
         const execTriple = await RemoteExecutionQuery.guessExecutionTripleForBuildresult(buildResult);
-        if (!matchesCurrentHost(execTriple)) {
+        if (!this.compiler.emulated && !matchesCurrentHost(execTriple)) {
             if (await RemoteExecutionQuery.isPossible(execTriple)) {
                 const result = await this.runExecutableRemotely(executablePackageHash, executeParameters, execTriple);
                 return moveArtifactsIntoResult(buildResult, {
@@ -2436,13 +2455,13 @@ export class BaseCompiler {
         asmResult.tools = toolsResult;
         if (this.compiler.supportsOptOutput && backendOptions.produceOptInfo) {
             const optPath = path.join(dirPath, `${this.outputFilebase}.opt.yaml`);
-            if (await fs.pathExists(optPath)) {
+            if (await utils.fileExists(optPath)) {
                 asmResult.optPath = optPath;
             }
         }
         if (this.compiler.supportsStackUsageOutput && backendOptions.produceStackUsageInfo) {
             const suPath = path.join(dirPath, `${this.outputFilebase}.su`);
-            if (await fs.pathExists(suPath)) {
+            if (await utils.fileExists(suPath)) {
                 asmResult.stackUsagePath = suPath;
             }
         }
@@ -2470,9 +2489,9 @@ export class BaseCompiler {
         return this.checkOutputFileAndDoPostProcess(asmResult, outputFilename, filters);
     }
 
-    doTempfolderCleanup(buildResult: BuildResult) {
+    doTempfolderCleanup(buildResult: BuildResult | CompilationResult) {
         if (buildResult.dirPath && !this.delayCleanupTemp) {
-            fs.remove(buildResult.dirPath);
+            fs.rm(buildResult.dirPath, {recursive: true, force: true}).catch(() => {});
         }
         buildResult.dirPath = undefined;
     }
@@ -3004,7 +3023,7 @@ export class BaseCompiler {
     }
 
     async afterCompilation(
-        result,
+        result /*: CompilationResult*/,
         doExecute: boolean,
         key: CacheKey,
         executeOptions: ExecutableExecutionOptions,
@@ -3034,16 +3053,11 @@ export class BaseCompiler {
         const compilationInfo = this.getCompilationInfo(key, result, customBuildPath);
 
         result.tools = _.union(
-            result.tools,
+            result.tools || [],
             await Promise.all(this.runToolsOfType(tools, 'postcompilation', compilationInfo)),
         );
 
         result = await this.extractDeviceCode(result, filters, compilationInfo);
-
-        this.doTempfolderCleanup(result);
-        if (result.buildResult) {
-            this.doTempfolderCleanup(result.buildResult);
-        }
 
         if (backendOptions.skipAsm) {
             result.asm = [];
@@ -3078,6 +3092,11 @@ export class BaseCompiler {
 
         if (!backendOptions.skipPopArgs) result.popularArguments = this.possibleArguments.getPopularArguments(options);
 
+        this.doTempfolderCleanup(result);
+        if (result.buildResult) {
+            this.doTempfolderCleanup(result.buildResult);
+        }
+
         result = this.postCompilationPreCacheHook(result);
 
         if (this.compiler.license?.invasive) {
@@ -3094,7 +3113,7 @@ export class BaseCompiler {
         }
 
         if (doExecute && result.code === 0) {
-            result.execResult = await execPromise;
+            result.execResult = (await execPromise) as CompilationResult;
 
             if (result.execResult.buildResult) {
                 this.doTempfolderCleanup(result.execResult.buildResult);
@@ -3346,7 +3365,7 @@ export class BaseCompiler {
                 if (opts.pass && opts.pass.name === selectizeObject.name) passFound = true;
 
                 if (removeEmptyPasses) {
-                    const f = fs.readdirSync(rootDir).filter(fn => fn.endsWith(selectizeObject.filename_suffix));
+                    const f = (await fs.readdir(rootDir)).filter(fn => fn.endsWith(selectizeObject.filename_suffix));
 
                     // pass is enabled, but the dump hasn't produced anything:
                     // don't add it to the drop down menu
@@ -3367,11 +3386,12 @@ export class BaseCompiler {
         if (opts.pass && passFound) {
             output.currentPassOutput = '';
 
-            if (dumpFileName && (await fs.pathExists(dumpFileName)))
-                output.currentPassOutput = await fs.readFile(dumpFileName, 'utf8');
-            // else leave the currentPassOutput empty. Can happen when some
-            // UI options are changed and a now disabled pass is still
-            // requested.
+            if (dumpFileName) {
+                const contents = await utils.tryReadTextFile(dumpFileName);
+                if (contents) output.currentPassOutput = contents;
+            }
+            // else leave the currentPassOutput empty. Can happen when some UI options are changed and a now disabled
+            // pass is still requested.
 
             if (/^\s*$/.test(output.currentPassOutput)) {
                 output.currentPassOutput = `Pass '${opts.pass.name}' was requested
@@ -3655,7 +3675,7 @@ but nothing was dumped. Possible causes are:
         if (this.compiler.supportsMarch) return [`-march=${c_value_placeholder}`];
         if (this.compiler.supportsTargetIs) return [`--target=${c_value_placeholder}`];
         if (this.compiler.supportsTarget) return ['--target', c_value_placeholder];
-
+        if (this.compiler.supportsHyphenTarget) return ['-target', c_value_placeholder];
         return [];
     }
 
@@ -3664,7 +3684,7 @@ but nothing was dumped. Possible causes are:
         if (this.compiler.supportsMarch) all.push([`-march=${c_value_placeholder}`]);
         if (this.compiler.supportsTargetIs) all.push([`--target=${c_value_placeholder}`]);
         if (this.compiler.supportsTarget) all.push(['--target', c_value_placeholder]);
-
+        if (this.compiler.supportsHyphenTarget) all.push(['-target', c_value_placeholder]);
         return all;
     }
 

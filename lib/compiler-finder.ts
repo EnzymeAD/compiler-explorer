@@ -27,7 +27,7 @@ import https from 'node:https';
 import path from 'node:path';
 import {promisify} from 'node:util';
 
-import fs from 'fs-extra';
+import fs from 'node:fs';
 import _ from 'underscore';
 import urljoin from 'url-join';
 
@@ -203,6 +203,7 @@ export class CompilerFinder {
 
         const supportsBinary = !!props('supportsBinary', true);
         const supportsBinaryObject = !!props('supportsBinaryObject', false);
+        const emulated = !!props('emulated', false);
         const interpreted = !!props('interpreted', false);
         const supportsExecute = (interpreted || supportsBinary) && !!props('supportsExecute', true);
         const executionWrapper = props('executionWrapper', '');
@@ -278,6 +279,7 @@ export class CompilerFinder {
             supportsDemangle: !!demangler,
             supportsBinary,
             supportsBinaryObject,
+            emulated,
             interpreted,
             supportsExecute,
             executionWrapper,

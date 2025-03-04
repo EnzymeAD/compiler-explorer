@@ -22,6 +22,8 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+import fs from 'node:fs';
+
 import {beforeAll, describe, expect, it} from 'vitest';
 
 import {CompilationEnvironment} from '../lib/compilation-env.js';
@@ -30,7 +32,7 @@ import * as utils from '../lib/utils.js';
 import {ParsedAsmResultLine} from '../types/asmresult/asmresult.interfaces.js';
 import {CompilerInfo} from '../types/compiler.interfaces.js';
 
-import {fs, makeCompilationEnvironment} from './utils.js';
+import {makeCompilationEnvironment} from './utils.js';
 
 const languages = {
     androidJava: {id: 'android-java'},
@@ -165,7 +167,7 @@ describe('dex2oat', () => {
         compiler.fullOutput = fullOutput;
 
         // The "result" of running oatdump.
-        const asm = [{text: fs.readFileSync(`${baseFolder}/oatdump.asm`).toString()}];
+        const asm = [{text: fs.readFileSync(`${baseFolder}/oatdump.asm`, 'utf-8')}];
         const objdumpResult = {
             asm,
         };
@@ -176,8 +178,8 @@ describe('dex2oat', () => {
         // fullOutput results in no processing, with the entire oatdump text
         // being returned as one long string.
         const output = fullOutput
-            ? [fs.readFileSync(`${baseFolder}/oatdump.asm`).toString()]
-            : utils.splitLines(fs.readFileSync(`${baseFolder}/output.asm`).toString());
+            ? [fs.readFileSync(`${baseFolder}/oatdump.asm`, 'utf-8')]
+            : utils.splitLines(fs.readFileSync(`${baseFolder}/output.asm`, 'utf-8'));
         const expectedSegments = output.map(line => {
             return {
                 text: line,

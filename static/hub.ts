@@ -228,10 +228,13 @@ export class Hub {
             },
             this,
         );
+    }
 
-        layout.init();
+    public initLayout() {
+        // To be called after setupSettings, as layout.init depends on them
+        this.layout.init();
         this.undefer();
-        layout.eventHub.emit('initialised');
+        this.layout.eventHub.emit('initialised');
     }
 
     public nextTreeId(): number {
@@ -406,7 +409,7 @@ export class Hub {
         return this.editors.length > 1 || this.getTrees().length > 0;
     }
 
-    public updateCloseButtons(container: any) {
+    public updateCloseButtons(container) {
         // note: container can be of multiple dynamic types, must query properties instead of assuming they're there
         if (container.tab !== undefined) {
             // prohibit closing the editor if it is the only one

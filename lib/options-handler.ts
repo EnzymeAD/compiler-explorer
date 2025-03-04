@@ -25,14 +25,14 @@
 import https from 'node:https';
 import path from 'node:path';
 
-import fs from 'fs-extra';
+import fs from 'node:fs';
 import semverParser from 'semver';
 import _ from 'underscore';
 import urlJoin from 'url-join';
 
 import {AppDefaultArguments} from '../app.js';
 import {splitArguments} from '../shared/common-utils.js';
-import {CompilerInfo} from '../types/compiler.interfaces.js';
+import {CompilerInfo, Remote} from '../types/compiler.interfaces.js';
 import type {LanguageKey} from '../types/languages.interfaces.js';
 import type {Source} from '../types/source.interfaces.js';
 import type {ToolTypeKey} from '../types/tool.interfaces.js';
@@ -429,7 +429,7 @@ export class ClientOptionsHandler {
         await this.getRemoteLibraries(language, target);
     }
 
-    static getFullRemoteUrl(remote): string {
+    static getFullRemoteUrl(remote: Remote): string {
         return remote.target + remote.basePath;
     }
 
